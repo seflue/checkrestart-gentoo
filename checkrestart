@@ -75,10 +75,20 @@ import sys
 import string
 import subprocess
 
+if "--nagios" in sys.argv:
+    nagios_mode = True
+else:
+    nagios_mode = False
+
+
 if os.getuid() != 0:
-    sys.stderr.write('This program must be run as root\n')
-    sys.stderr.write('in order to collect information about all open file descriptors\n')
-    sys.exit(1)
+    if nagios_mode:
+        print 'Must be run as root!\n'
+        sys.exit(3)
+    else:
+        sys.stderr.write('This program must be run as root\n')
+        sys.stderr.write('in order to collect information about all open file descriptors\n')
+        sys.exit(1)
 
 #
 # dpkg version of the package search
@@ -153,6 +163,8 @@ def find_cmd(cmd):
 
 
 def main():
+    if nagios_mode:
+        nagios_output = ""
     process = None
     toRestart = {}
 
@@ -164,10 +176,17 @@ def main():
 # TODO - This does not work yet:
 #        toRestart = psdelcheck()
 
-    print "Found %d processes using old versions of upgraded files" % len(toRestart)
+    processes_found_str = "Found %d processes using old versions of upgraded files" % len(toRestart)
+    if nagios_mode:
+        nagios_output += processes_found_str + '|processes=%d' % len(toRestart)
+    else:
+        print processes_found_str
 
     # Nothing to do?
     if len(toRestart) == 0:
+        if nagios_mode:
+            nagios_output += 'programs=0 packages=0'
+            print nagios_output
         sys.exit(0)
 
     programs = {}
@@ -180,11 +199,25 @@ def main():
             continue
         programs[process.program].append(process)
 
-    print "(%d distinct programs)" % len(programs)
+    if nagios_mode:
+        nagios_output += " programs=%d" % len(programs)
+    else:
+        print "(%d distinct programs)" % len(programs)
 
     fQuery(programs, packages)
 
-    print "(%d distinct packages)" % len(packages)
+    if nagios_mode:
+        nagios_output += " packages=%d" % len(packages)
+        
+    else:
+        print "(%d distinct packages)" % len(packages)
+
+    if nagios_mode:
+        print nagios_output
+        if len(packages) == 0 and len(programs) == 0 and len(toRestart) == 0:
+            sys.exit(0)
+        else:
+            sys.exit(2)
 
     if len(packages) == 0:
         print "No packages seem to need to be restarted."
@@ -315,7 +348,7 @@ def lsofcheck():
 		setlist = setlist + 1
 	    if setlist > 1:
 		print "You have to choose either search, white or black list."
-		sys.exit(1)
+                    sys.exit(1)
 
             # The searchlist code, default ignore everything
 	    if len(searchlist) > 0:
